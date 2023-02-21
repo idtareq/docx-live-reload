@@ -4,10 +4,17 @@ import threading
 import argparse
 import zipfile
 import win32com.client as win32
-import os, time
+import os
+import sys
+import time
 from pathlib import Path
 import pythoncom
 from lxml import etree
+
+if sys.version_info < (3, 8):
+    import importlib_metadata
+else:
+    import importlib.metadata as importlib_metadata
 
 
 class Paths:
@@ -147,7 +154,7 @@ def main():
     if os.name != "nt":
         print("Currently, this tool is Windows only.")
         return
-    
+
     parser = argparse.ArgumentParser(
         prog="docx-live-reload",
         description="Preview a Docx file in MS Word. Modify the Docx file or the extracted document.xml or style.xml and the document will reload in MS Word and show the changes.",
@@ -162,6 +169,12 @@ def main():
         else:
             return filename
 
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {importlib_metadata.version('docx-live-reload')}",
+    )
     parser.add_argument("docx_path", type=check_file)
 
     args = parser.parse_args()
