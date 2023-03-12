@@ -130,7 +130,7 @@ def run_preview(word, doc, parser):
             file.extract(name, Shared.paths.ext_dirpath)
         for path in Shared.paths.ext_xmls:
             tree = etree.parse(path, parser)
-            tree.write(path, pretty_print=True)
+            tree.write(path, pretty_print=True, encoding="utf-8")
     Shared.xmls_watcher.start()
 
     return doc
