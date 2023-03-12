@@ -1,4 +1,4 @@
-from queue import Queue
+import queue
 import shutil
 import threading
 import argparse
@@ -75,7 +75,7 @@ class Shared:
     xmls_watcher: FilesWatcher
 
 
-def watcher(cmds: Queue):
+def watcher_thread(cmds: queue.Queue):
     while True:
         if Shared.docx_watcher.changed:
             print("Change in docx file detected!")
@@ -88,41 +88,72 @@ def watcher(cmds: Queue):
         time.sleep(0.1)
 
 
-def preview(cmds: Queue):
-    word = win32.Dispatch("Word.Application", pythoncom.CoInitialize())
-    word.Visible = True
+def preview_thread(cmds: queue.Queue):
+    word_app = win32.Dispatch("Word.Application", pythoncom.CoInitialize())
+    word_app.Visible = True
 
     parser = etree.XMLParser(remove_blank_text=True)
-    doc = run_preview(word, None, parser)
+    doc = run_preview(word_app, None, parser)
 
     Shared.docx_watcher.start()
     Shared.xmls_watcher.start()
 
-    while (cmd := cmds.get()) != None:
+    while True:
+        try:
+            cmd = cmds.get(timeout=1)
+        except queue.Empty:
+            cmd = None
+
+            try:
+                word_app.Visible
+            except pythoncom.com_error:
+                print()
+                print("Word was closed. exiting..")
+                exit()
+
         if cmd == "reload":
             print("reloading..")
-            doc = run_preview(word, doc, parser)
+            doc = run_preview(word_app, doc, parser)
 
-        if cmd == "update":
+        elif cmd == "update":
             update(parser)
 
         elif cmd == "quit":
-            print("quitting..")
+            print("exiting..")
             try:
-                if doc in word.Documents:
+                if doc in word_app.Documents:
                     doc.Close()
-                word.Quit()
+                word_app.Quit()
             except pythoncom.com_error:
                 pass
             break
 
 
-def run_preview(word, doc, parser):
-    if doc is not None and doc in word.Documents:
+def input_thread(cmds: queue.Queue):
+    try:
+        print("Press 'r' to reload. 'q' to quit.")
+
+        while True:
+            cmd = input("> ")
+
+            if cmd == "q":
+                cmds.put("quit")
+                break
+
+            elif cmd == "r":
+                cmds.put("reload")
+
+    except KeyboardInterrupt:
+        cmds.put("quit")
+        pass
+
+
+def run_preview(word_app, doc, parser):
+    if doc is not None and doc in word_app.Documents:
         doc.Close()
 
     shutil.copyfile(Shared.paths.path, Shared.paths.preview_copy_path)
-    doc = word.Documents.Open(str(Shared.paths.preview_copy_path))
+    doc = word_app.Documents.Open(str(Shared.paths.preview_copy_path))
 
     Shared.xmls_watcher.stop()
     with zipfile.ZipFile(Shared.paths.path) as file:
@@ -183,27 +214,11 @@ def main():
     Shared.docx_watcher = FilesWatcher([Shared.paths.path])
     Shared.xmls_watcher = FilesWatcher(Shared.paths.ext_xmls)
 
-    cmds = Queue()
+    cmds = queue.Queue()
 
-    try:
-        threading.Thread(target=watcher, daemon=True, args=(cmds,)).start()
-        threading.Thread(target=preview, args=(cmds,)).start()
-
-        print("Press 'r' to reload. 'q' to quit.")
-
-        while True:
-            cmd = input("> ")
-
-            if cmd == "q":
-                cmds.put("quit")
-                break
-
-            elif cmd == "r":
-                cmds.put("reload")
-
-    except KeyboardInterrupt:
-        cmds.put("quit")
-        pass
+    threading.Thread(target=watcher_thread, daemon=True, args=(cmds,)).start()
+    threading.Thread(target=input_thread, daemon=True, args=(cmds,)).start()
+    threading.Thread(target=preview_thread, args=(cmds,)).start()
 
 
 if __name__ == "__main__":
